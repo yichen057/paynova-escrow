@@ -22,3 +22,5 @@ docs/零基础验收指南.md
 # Build/run byproducts
 mvn-output.txt
 COMMIT_PLAN.md
+docs/assets/
+docs/PayNova_Escrow_详细设计文档_v1.1.md

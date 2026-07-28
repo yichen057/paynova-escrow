@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PayNova — Escrow Demo Cashier</title>
+<style>
+  :root { --ink:#1a1f2e; --sub:#5c6478; --line:#e3e6ee; --accent:#2456e6; --ok:#177245; --bad:#b3261e; --bg:#f6f7fb; }
+  * { box-sizing:border-box; margin:0; }
+  body { font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); background:var(--bg); padding:24px; }
+  h1 { font-size:20px; margin-bottom:2px; }
+  .sub { color:var(--sub); font-size:13px; margin-bottom:18px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:920px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--sub); margin-bottom:10px; }
+  .bal { font-size:30px; font-variant-numeric:tabular-nums; margin:4px 0 12px; }
+  button { font:inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; margin:0 6px 6px 0; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .status { display:inline-block; padding:2px 10px; border-radius:99px; font-size:12px; font-weight:600; background:#eef1f8; }
+  .status.FUNDED { background:#e7efff; color:var(--accent); }
+  .status.RELEASED { background:#e5f3ea; color:var(--ok); }
+  .status.REFUNDED { background:#fdeceb; color:var(--bad); }
+  #log { grid-column:1/-1; max-height:230px; overflow:auto; font:12px/1.6 ui-monospace, Menlo, monospace; }
+  #log div { border-bottom:1px dashed var(--line); padding:3px 0; }
+  #log .err { color:var(--bad); } #log .ok { color:var(--ok); }
+  .note { grid-column:1/-1; font-size:12px; color:var(--sub); }
+</style>
+</head>
+<body>
+<h1>PayNova — Escrow Demo Cashier</h1>
+<div class="sub">Sandbox funds — no real monetary value. Every money call sends a fresh <code>Idempotency-Key</code>.</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Buyer wallet</h2>
+    <div class="bal" id="buyerBal">—</div>
+    <button class="primary" id="setup">1 · Create demo users</button>
+    <button id="topup" disabled>2 · Top up $100</button>
+    <button id="create" disabled>3 · Create $50 escrow order</button>
+    <button id="fund" disabled>4 · Fund (pay into escrow)</button>
+  </div>
+  <div class="card">
+    <h2>Seller wallet &nbsp;·&nbsp; order <span class="status" id="orderStatus">—</span></h2>
+    <div class="bal" id="sellerBal">—</div>
+    <button id="release" disabled>5a · Buyer confirms → release</button>
+    <button id="refund" disabled>5b · Seller refunds buyer</button>
+  </div>
+  <div class="card" id="log"></div>
+  <div class="note">Escrow lifecycle: CREATED → FUNDED → RELEASED / REFUNDED. Behind every button: JWT auth,
+    idempotency records, a double-entry ledger posting, pessimistic account locks, and an outbox event.</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+let buyer = {}, seller = {}, orderId = null;
+
+function log(msg, cls) {
+  const d = document.createElement("div");
+  d.textContent = new Date().toLocaleTimeString() + "  " + msg;
+  if (cls) d.className = cls;
+  logEl.prepend(d);
+}
+
+async function api(path, { method = "GET", token, body, idem } = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = "Bearer " + token;
+  if (idem) headers["Idempotency-Key"] = crypto.randomUUID();
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    log(`${method} ${path} → ${res.status} ${json.error_code || ""} ${json.message || ""}`, "err");
+    throw json;
+  }
+  log(`${method} ${path} → ${res.status}`, "ok");
+  return json;
+}
+
+async function refreshBalances() {
+  if (buyer.token) $("buyerBal").textContent =
+      "$" + ((await api("/api/accounts/me", { token: buyer.token })).balance_cents / 100).toFixed(2);
+  if (seller.token) $("sellerBal").textContent =
+      "$" + ((await api("/api/accounts/me", { token: seller.token })).balance_cents / 100).toFixed(2);
+}
+
+async function refreshOrder() {
+  if (!orderId) return;
+  const o = await api("/api/escrows/" + orderId, { token: buyer.token });
+  const el = $("orderStatus");
+  el.textContent = o.status; el.className = "status " + o.status;
+  $("release").disabled = $("refund").disabled = o.status !== "FUNDED";
+  $("fund").disabled = o.status !== "CREATED";
+}
+
+async function makeUser(prefix) {
+  const email = `${prefix}+${Date.now()}@demo.paynova`;
+  const reg = await api("/api/auth/register", { method: "POST", body: { email, password: "demo1234" } });
+  const { token } = await api("/api/auth/login", { method: "POST", body: { email, password: "demo1234" } });
+  return { id: reg.user_id, token };
+}
+
+$("setup").onclick = async () => {
+  buyer = await makeUser("buyer"); seller = await makeUser("seller");
+  log(`demo users ready (buyer #${buyer.id}, seller #${seller.id})`);
+  $("topup").disabled = false;
+  await refreshBalances();
+};
+
+$("topup").onclick = async () => {
+  await api("/api/wallets/top-ups", { method: "POST", token: buyer.token, idem: true, body: { amount_cents: 10000 } });
+  $("create").disabled = false;
+  await refreshBalances();
+};
+
+$("create").onclick = async () => {
+  const o = await api("/api/escrows", { method: "POST", token: buyer.token, idem: true,
+      body: { seller_id: seller.id, amount_cents: 5000, description: "demo order" } });
+  orderId = o.id;
+  log("order created: " + orderId);
+  await refreshOrder();
+};
+
+$("fund").onclick    = async () => { await api(`/api/escrows/${orderId}/fund`,    { method: "POST", token: buyer.token,  idem: true }); await refreshOrder(); await refreshBalances(); };
+$("release").onclick = async () => { await api(`/api/escrows/${orderId}/release`, { method: "POST", token: buyer.token,  idem: true }); await refreshOrder(); await refreshBalances(); };
+$("refund").onclick  = async () => { await api(`/api/escrows/${orderId}/refund`,  { method: "POST", token: seller.token, idem: true }); await refreshOrder(); await refreshBalances(); };
+</script>
+</body>
+</html>

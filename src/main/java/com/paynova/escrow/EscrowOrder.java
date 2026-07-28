@@ -44,8 +44,11 @@ public class EscrowOrder {
     @Column(nullable = false, updatable = false)
     private EscrowStatus status = EscrowStatus.CREATED;
 
-    @Column(name = "created_at", insertable = false, updatable = false)
-    private OffsetDateTime createdAt;
+    // Set on the Java side (DB DEFAULT remains as a fallback) so the creation response
+    // carries a real timestamp instead of null — a freshly saved entity never re-reads
+    // DB-generated column defaults. (Known issue found during acceptance.)
+    @Column(name = "created_at", updatable = false)
+    private OffsetDateTime createdAt = OffsetDateTime.now();
 
     @Column(name = "updated_at", insertable = false, updatable = false)
     private OffsetDateTime updatedAt;

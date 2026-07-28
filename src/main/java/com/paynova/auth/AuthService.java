@@ -1,6 +1,7 @@
 package com.paynova.auth;
 
 import com.paynova.account.AccountService;
+import com.paynova.audit.AuditService;
 import com.paynova.common.ApiException;
 import com.paynova.common.ErrorCode;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -21,13 +22,16 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AccountService accountService;
+    private final AuditService auditService;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                       JwtService jwtService, AccountService accountService) {
+                       JwtService jwtService, AccountService accountService,
+                       AuditService auditService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.accountService = accountService;
+        this.auditService = auditService;
     }
 
     /**
@@ -55,6 +59,8 @@ public class AuthService {
             // Create the wallet in the same transaction (§4): user and wallet are created
             // atomically — a user without a wallet can never exist
             accountService.createWallet(user.getId());
+            auditService.success("auth.register", user.getId(), user.getRole().name(),
+                    null, null, null, null, null, null, null);
             return user;
         } catch (DataIntegrityViolationException e) {
             // Concurrent duplicate registration → map deterministically to 409 instead of
@@ -66,13 +72,16 @@ public class AuthService {
         }
     }
 
-    @Transactional(readOnly = true)
+    // Not readOnly: the success audit INSERT below must join this transaction (§11)
+    @Transactional
     public String login(String email, String rawPassword) {
         User user = userRepository.findByEmail(normalize(email))
                 .filter(u -> passwordEncoder.matches(rawPassword, u.getPasswordHash()))
                 // Uniform error message: do not reveal whether the email exists or the
                 // password is wrong, to prevent account enumeration
                 .orElseThrow(() -> new ApiException(ErrorCode.BAD_CREDENTIALS, "invalid email or password"));
+        auditService.success("auth.login", user.getId(), user.getRole().name(),
+                null, null, null, null, null, null, null);
         return jwtService.generate(user.getId(), user.getEmail(), user.getRole());
     }
 

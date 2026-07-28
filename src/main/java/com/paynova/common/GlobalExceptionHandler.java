@@ -16,9 +16,32 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    private final com.paynova.audit.RejectionAuditRecorder rejectionAudit;
+
+    public GlobalExceptionHandler(com.paynova.audit.RejectionAuditRecorder rejectionAudit) {
+        this.rejectionAudit = rejectionAudit;
+    }
+
     @ExceptionHandler(ApiException.class)
-    public ResponseEntity<Map<String, Object>> handleApi(ApiException e) {
+    public ResponseEntity<Map<String, Object>> handleApi(ApiException e,
+                                                         jakarta.servlet.http.HttpServletRequest request) {
+        // §11: security-relevant rejections (illegal transitions, insufficient funds,
+        // permission denials, bad credentials, ...) get a failure audit in a FRESH
+        // transaction — the business transaction has already rolled back at this point.
+        if (isAuditable(e.code())) {
+            rejectionAudit.rejected("request.rejected",
+                    e.code().name() + ": " + e.getMessage()
+                            + " [" + request.getMethod() + " " + request.getRequestURI() + "]");
+        }
         return body(e.code(), e.getMessage());
+    }
+
+    private boolean isAuditable(ErrorCode code) {
+        return switch (code) {
+            case FORBIDDEN, BAD_CREDENTIALS, ILLEGAL_STATE_TRANSITION, INSUFFICIENT_FUNDS,
+                 IDEMPOTENCY_KEY_REUSED, REQUEST_IN_PROGRESS, INVALID_SIGNATURE, LOCK_TIMEOUT -> true;
+            default -> false;
+        };
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

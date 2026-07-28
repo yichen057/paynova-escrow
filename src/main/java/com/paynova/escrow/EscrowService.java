@@ -3,6 +3,7 @@ package com.paynova.escrow;
 import com.paynova.account.Account;
 import com.paynova.account.AccountLockService;
 import com.paynova.account.AccountService;
+import com.paynova.audit.AuditService;
 import com.paynova.auth.UserRepository;
 import com.paynova.common.ApiException;
 import com.paynova.common.ErrorCode;
@@ -32,12 +33,13 @@ public class EscrowService {
     private final LedgerService ledgerService;
     private final LedgerTransactionRepository ledgerTransactionRepository;
     private final OutboxService outboxService;
+    private final AuditService auditService;
 
     public EscrowService(EscrowRepository escrowRepository, UserRepository userRepository,
                          AccountService accountService, AccountLockService lockService,
                          LedgerService ledgerService,
                          LedgerTransactionRepository ledgerTransactionRepository,
-                         OutboxService outboxService) {
+                         OutboxService outboxService, AuditService auditService) {
         this.escrowRepository = escrowRepository;
         this.userRepository = userRepository;
         this.accountService = accountService;
@@ -45,6 +47,7 @@ public class EscrowService {
         this.ledgerService = ledgerService;
         this.ledgerTransactionRepository = ledgerTransactionRepository;
         this.outboxService = outboxService;
+        this.auditService = auditService;
     }
 
     /**
@@ -126,16 +129,18 @@ public class EscrowService {
         Map<Long, Account> locked = lockService.lockAll(List.of(wallet.getId(), escrow.getId()));
 
         if (locked.get(wallet.getId()).getBalance() < order.getAmountCents()) {
-        //if (wallet.getBalance() < order.getAmountCents()) {
             throw new ApiException(ErrorCode.INSUFFICIENT_FUNDS,
                     "wallet balance is insufficient to fund this order");
         }
         casOrConflict(orderId, from, to);
-        ledgerService.post(LedgerTransactionType.ESCROW_FUND, REFERENCE_TYPE, orderId.toString(),
+        LedgerTransaction txn = ledgerService.post(LedgerTransactionType.ESCROW_FUND,
+                REFERENCE_TYPE, orderId.toString(),
                 null, List.of(
                         Posting.debit(wallet.getId(), order.getAmountCents()),
                         Posting.credit(escrow.getId(), order.getAmountCents())));
         appendEvent(order, "escrow.funded", to);
+        auditService.success("escrow.funded", null, null, orderId, txn.getId(),
+                from.name(), to.name(), order.getAmountCents(), order.getCurrency(), null);
         return loadOrder(orderId);
     }
 
@@ -155,11 +160,14 @@ public class EscrowService {
 
         requireEscrowSolvency(locked.get(escrow.getId()), order.getAmountCents());
         casOrConflict(orderId, from, to);
-        ledgerService.post(LedgerTransactionType.ESCROW_RELEASE, REFERENCE_TYPE, orderId.toString(),
+        LedgerTransaction txn = ledgerService.post(LedgerTransactionType.ESCROW_RELEASE,
+                REFERENCE_TYPE, orderId.toString(),
                 null, List.of(
                         Posting.debit(escrow.getId(), order.getAmountCents()),
                         Posting.credit(sellerWallet.getId(), order.getAmountCents())));
         appendEvent(order, "escrow.released", to);
+        auditService.success("escrow.released", null, null, orderId, txn.getId(),
+                from.name(), to.name(), order.getAmountCents(), order.getCurrency(), null);
         return loadOrder(orderId);
     }
 
@@ -187,11 +195,15 @@ public class EscrowService {
                         LedgerTransactionType.ESCROW_FUND, REFERENCE_TYPE, orderId.toString())
                 .orElseThrow(() -> new IllegalStateException(
                         "invariant violated: FUNDED order has no ESCROW_FUND ledger transaction"));
-        ledgerService.post(LedgerTransactionType.ESCROW_REFUND, REFERENCE_TYPE, orderId.toString(),
+        LedgerTransaction txn = ledgerService.post(LedgerTransactionType.ESCROW_REFUND,
+                REFERENCE_TYPE, orderId.toString(),
                 fundTxn.getId(), List.of(
                         Posting.debit(escrow.getId(), order.getAmountCents()),
                         Posting.credit(buyerWallet.getId(), order.getAmountCents())));
         appendEvent(order, "escrow.refunded", to);
+        auditService.success("escrow.refunded", null, null, orderId, txn.getId(),
+                from.name(), to.name(), order.getAmountCents(), order.getCurrency(),
+                "reversal_of=" + fundTxn.getId());
         return loadOrder(orderId);
     }
 

@@ -1,0 +1,24 @@
+# Render.com blueprint (optional deployment).
+# Steps:
+#   1. Create a free PostgreSQL instance on Render; copy host/port/db/user/password.
+#   2. "New → Blueprint" pointing at this repo; when prompted, fill in the three
+#      SPRING_DATASOURCE_* values from step 1 (JDBC URL form:
+#      jdbc:postgresql://HOST:5432/DBNAME).
+#   3. Free-tier note: the service spins down when idle; first request takes ~1 min.
+services:
+  - type: web
+    name: paynova-escrow
+    runtime: docker
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true          # random 256-bit secret per deploy — never committed
+      - key: SPRING_DATASOURCE_URL
+        sync: false                  # prompted in the dashboard (jdbc:postgresql://...)
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
+      - key: SPRING_PROFILES_ACTIVE
+        value: json                  # SIEM-ready JSON logs in the cloud

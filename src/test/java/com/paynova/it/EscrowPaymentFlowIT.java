@@ -46,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SuppressWarnings({"rawtypes", "unchecked"})   // TestRestTemplate returns raw Map by design here
 class EscrowPaymentFlowIT {
 
     @Container

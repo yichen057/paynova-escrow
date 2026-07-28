@@ -23,6 +23,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
 
     public static final String HEADER = "X-Correlation-Id";
     public static final String MDC_KEY = "correlation_id";
+    public static final String MDC_SOURCE_IP = "source_ip";
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
@@ -30,11 +31,13 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
         String incoming = request.getHeader(HEADER);
         String correlationId = isValidUuid(incoming) ? incoming : UUID.randomUUID().toString();
         MDC.put(MDC_KEY, correlationId);
+        MDC.put(MDC_SOURCE_IP, request.getRemoteAddr());
         response.setHeader(HEADER, correlationId);
         try {
             chain.doFilter(request, response);
         } finally {
             MDC.remove(MDC_KEY);
+            MDC.remove(MDC_SOURCE_IP);
         }
     }
 

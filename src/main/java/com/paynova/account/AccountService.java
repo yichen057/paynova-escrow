@@ -1,8 +1,10 @@
 package com.paynova.account;
 
+import com.paynova.audit.AuditService;
 import com.paynova.common.ApiException;
 import com.paynova.common.ErrorCode;
 import com.paynova.ledger.LedgerService;
+import com.paynova.ledger.LedgerTransaction;
 import com.paynova.ledger.LedgerTransactionType;
 import com.paynova.ledger.Posting;
 import org.springframework.stereotype.Service;
@@ -15,10 +17,13 @@ public class AccountService {
 
     private final AccountRepository accountRepository;
     private final LedgerService ledgerService;
+    private final AuditService auditService;
 
-    public AccountService(AccountRepository accountRepository, LedgerService ledgerService) {
+    public AccountService(AccountRepository accountRepository, LedgerService ledgerService,
+                          AuditService auditService) {
         this.accountRepository = accountRepository;
         this.ledgerService = ledgerService;
+        this.auditService = auditService;
     }
 
     /** Creates the wallet within the registration transaction (§4) — called by AuthService.register. */
@@ -57,10 +62,12 @@ public class AccountService {
         Account wallet = walletOf(userId);
         Account cashIn = systemAccount(Account.SYSTEM_CASH_IN);
 
-        ledgerService.post(LedgerTransactionType.TOP_UP, "TOP_UP", reference,
+        LedgerTransaction txn = ledgerService.post(LedgerTransactionType.TOP_UP, "TOP_UP", reference,
                 null, List.of(
                         Posting.debit(cashIn.getId(), amountCents),
                         Posting.credit(wallet.getId(), amountCents)));
+        auditService.success("wallet.topup", userId, null, null, txn.getId(),
+                null, null, amountCents, wallet.getCurrency(), "reference=" + reference);
 
         // The snapshot was already updated by applyDelta; re-read to return the latest balance
         return accountRepository.findById(wallet.getId()).orElseThrow();
