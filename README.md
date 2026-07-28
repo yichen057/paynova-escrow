@@ -1,5 +1,7 @@
 # PayNova — Escrow Payment Platform
 
+[![CI](https://github.com/yichen057/paynova-escrow/actions/workflows/ci.yml/badge.svg)](https://github.com/yichen057/paynova-escrow/actions)
+
 > A portfolio-grade **sandbox escrow payment platform**. It implements production-inspired
 > ledger, idempotency, concurrency control, transactional outbox, security, and audit
 > patterns. **It does not process or custody real funds.**
@@ -39,23 +41,26 @@ mvn test      # unit tests (no database)
 mvn verify    # + integration tests on real PostgreSQL via Testcontainers (Docker required)
 ```
 
-**Verified today (Step 0):** JWT issue/verify, password policy, register/login flow,
-concurrent duplicate registration → exactly one 201 + one 409, Flyway migration of all
-9 tables, system account seeds, and 401/404/409/422 semantics — on real PostgreSQL.
+All key guarantees are enforced by 64 automated checks (33 unit tests + 31 integration
+tests on real PostgreSQL via Testcontainers), not claimed:
 
-**Planned guarantees** (each enforced by deterministic integration tests as its step
-lands, see Status below): ledger entries always balance to zero (Step 2); the same
-`Idempotency-Key` replayed 10× moves money exactly once (Step 3); two concurrent $80
-payments from a $100 wallet — exactly one succeeds (Step 4).
+- Ledger entries always balance — per-transaction Σ(debit)=Σ(credit), global per-currency SUM = 0
+- The same `Idempotency-Key` replayed 10× moves money exactly once, with verbatim response replay
+- Two concurrent $80 payments from a $100 wallet — exactly one succeeds (pessimistic locking)
+- Concurrent double-release of one escrow order — exactly one winner (conditional-update CAS)
+- Illegal state transitions rejected with zero side effects; append-only ledger enforced by a DB trigger
+- Webhook delivery retries with exponential backoff; consumer-side dedup keeps effects exactly-once
 
 ## Status
 
 - [x] Step 0 — skeleton: schema (9 tables), JWT auth, Docker Compose, CI
-- [ ] Step 1 — escrow state machine (CAS)
-- [ ] Step 2 — double-entry ledger + system accounts + top-up
-- [ ] Step 3 — request-level idempotency
-- [ ] Step 4 — account locking + money endpoints
-- [ ] Step 5 — transactional outbox + webhook worker
+- [x] Step 1 — escrow state machine (CAS)
+- [x] Step 2 — double-entry ledger + system accounts + top-up
+- [x] Step 3 — request-level idempotency
+- [x] Step 4 — account locking + money endpoints
+- [x] Step 5 — transactional outbox + webhook worker
+
+In progress: audit-event module (SIEM-ready structured logging), demo assets, deployment.
 
 ## Limitations (by design)
 
