@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: paynova
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/paynova}
+    username: ${DB_USER:paynova}
+    password: ${DB_PASSWORD:paynova}
+  jpa:
+    hibernate:
+      ddl-auto: validate   # schema is managed exclusively by Flyway; Hibernate never creates tables
+    open-in-view: false
+  flyway:
+    enabled: true
+
+paynova:
+  webhook:
+    url: ${WEBHOOK_URL:http://localhost:8080/api/webhooks/mock-merchant}
+    # Demo signing secret with no real value; override via environment variable in a real deployment
+    secret: ${WEBHOOK_SECRET:sandbox-webhook-secret-no-real-value}
+  jwt:
+    # No default value, fail-fast: must be provided via environment variable (Base64, >= 256 bit; generate with: openssl rand -base64 32)
+    # The fixed test key for the test environment is injected via src/test/resources/application.properties
+    secret: ${JWT_SECRET}
+    expiry-minutes: ${JWT_EXPIRY_MINUTES:1440}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
