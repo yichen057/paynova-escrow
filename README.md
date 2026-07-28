@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/yichen057/paynova-escrow/actions/workflows/ci.yml/badge.svg)](https://github.com/yichen057/paynova-escrow/actions)
 
-![PayNova demo cashier — buyer/seller/escrow three-ledger view](docs/assets/cashier-screenshot.png)
+![PayNova demo cashier — buyer/seller/escrow three-ledger view](docs/cashier-screenshot.png)
 
 > A portfolio-grade **sandbox escrow payment platform**. It implements production-inspired
 > ledger, idempotency, concurrency control, transactional outbox, security, and audit
