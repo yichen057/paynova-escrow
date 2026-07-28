@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/yichen057/paynova-escrow/actions/workflows/ci.yml/badge.svg)](https://github.com/yichen057/paynova-escrow/actions)
 
+![PayNova demo cashier — buyer/seller/escrow three-ledger view](docs/assets/cashier-screenshot.png)
+
 > A portfolio-grade **sandbox escrow payment platform**. It implements production-inspired
 > ledger, idempotency, concurrency control, transactional outbox, security, and audit
 > patterns. **It does not process or custody real funds.**
@@ -31,6 +33,17 @@ cp .env.example .env          # then set JWT_SECRET (generate: openssl rand -bas
 docker compose up --build     # app on :8080, PostgreSQL on :5433
 # Demo cashier: http://localhost:8080/cashier.html
 # Swagger UI:   http://localhost:8080/swagger-ui.html
+```
+
+Peek at the authoritative escrow ledger straight from PostgreSQL (the cashier page's
+escrow panel is a client-side illustration; this is the real thing):
+
+```bash
+docker compose exec db psql -U paynova -c "
+SELECT to_char(e.created_at,'HH24:MI:SS') AS time, e.direction, e.amount, lt.type
+FROM ledger_entries e JOIN ledger_transactions lt ON lt.id = e.transaction_id
+WHERE e.account_id = (SELECT id FROM accounts WHERE name='system:escrow')
+ORDER BY e.id;"
 ```
 
 There is deliberately no default JWT secret — the app fails fast without one.
@@ -63,7 +76,10 @@ tests on real PostgreSQL via Testcontainers), not claimed:
 - [x] Step 4 — account locking + money endpoints
 - [x] Step 5 — transactional outbox + webhook worker
 
-In progress: audit-event module (SIEM-ready structured logging), demo assets, deployment.
+- [x] Audit trail — success audits share the business transaction; failure audits survive
+      rollback via REQUIRES_NEW; SIEM-ready JSON logging (`json` profile)
+
+In progress: cloud deployment (optional — `render.yaml` blueprint is ready).
 
 ## Architecture
 

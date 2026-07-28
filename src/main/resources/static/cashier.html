@@ -21,6 +21,11 @@
   .status.FUNDED { background:#e7efff; color:var(--accent); }
   .status.RELEASED { background:#e5f3ea; color:var(--ok); }
   .status.REFUNDED { background:#fdeceb; color:var(--bad); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--sub); font-weight:600; padding:4px 8px; border-bottom:1px solid var(--line); }
+  td { padding:5px 8px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  td.cr { color:var(--ok); font-weight:600; } td.dr { color:var(--bad); font-weight:600; }
+  td.mono { font:12px ui-monospace, Menlo, monospace; color:var(--sub); }
   #log { grid-column:1/-1; max-height:230px; overflow:auto; font:12px/1.6 ui-monospace, Menlo, monospace; }
   #log div { border-bottom:1px dashed var(--line); padding:3px 0; }
   #log .err { color:var(--bad); } #log .ok { color:var(--ok); }
@@ -45,6 +50,46 @@
     <div class="bal" id="sellerBal">—</div>
     <button id="release" disabled>5a · Buyer confirms → release</button>
     <button id="refund" disabled>5b · Seller refunds buyer</button>
+  </div>
+  <div class="card">
+    <h2>Buyer ledger entries</h2>
+    <table>
+      <thead><tr><th>Time</th><th>Direction</th><th style="text-align:right">Amount</th><th>Txn</th></tr></thead>
+      <tbody id="ledgerBuyer"><tr><td colspan="4" class="mono">— no entries yet —</td></tr></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Seller ledger entries</h2>
+    <table>
+      <thead><tr><th>Time</th><th>Direction</th><th style="text-align:right">Amount</th><th>Txn</th></tr></thead>
+      <tbody id="ledgerSeller"><tr><td colspan="4" class="mono">— no entries yet —</td></tr></tbody>
+    </table>
+  </div>
+  <div class="card" style="grid-column:1/-1">
+    <h2>Escrow account · derived view <span class="status">running balance: <b id="escrowBal">$0.00</b></span></h2>
+    <table>
+      <thead><tr><th>Time</th><th>Hop</th><th>Direction</th><th style="text-align:right">Amount</th></tr></thead>
+      <tbody id="ledgerEscrow"><tr><td colspan="4" class="mono">— no movements yet —</td></tr></tbody>
+    </table>
+    <div class="note" style="margin-top:8px">
+      ⚠️ Illustration only: reconstructed client-side from the operations this page performed —
+      the <b>authoritative</b> escrow ledger lives in PostgreSQL
+      (<code>ledger_entries</code> of <code>system:escrow</code>; see the psql query in the README).
+      Notice it mirrors the wallets: every buyer DEBIT on fund appears here as a CREDIT, and vice versa.
+    </div>
+  </div>
+  <div class="card" style="grid-column:1/-1">
+    <!-- Ledger convention note: in this wallet-style ledger, direction is always
+         relative to THE ACCOUNT BEING VIEWED (here: the buyer's wallet).
+         CREDIT = funds flow INTO this account (balance up, shown green +).
+         DEBIT  = funds flow OUT OF this account (balance down, shown red −).
+         Stored amounts are always positive; the sign is carried by direction. -->
+    <div class="note" style="margin-top:8px">
+      Convention — relative to <b>this account</b>: <span style="color:var(--ok);font-weight:600">CREDIT = money IN (+)</span>
+      &nbsp;·&nbsp; <span style="color:var(--bad);font-weight:600">DEBIT = money OUT (−)</span>.
+      Ledger amounts are always positive; the direction column carries the sign.
+      Every transaction has a matching opposite entry on another account — that's double-entry.
+    </div>
   </div>
   <div class="card" id="log"></div>
   <div class="note">Escrow lifecycle: CREATED → FUNDED → RELEASED / REFUNDED. Behind every button: JWT auth,
@@ -82,6 +127,31 @@ async function refreshBalances() {
       "$" + ((await api("/api/accounts/me", { token: buyer.token })).balance_cents / 100).toFixed(2);
   if (seller.token) $("sellerBal").textContent =
       "$" + ((await api("/api/accounts/me", { token: seller.token })).balance_cents / 100).toFixed(2);
+  await refreshLedger();
+}
+
+async function refreshLedger() {
+  // Each table shows /api/accounts/me/transactions AS THAT USER — direction is
+  // always relative to the viewed account. Note: a release never appears in the
+  // buyer's ledger (its two entries are escrow -> seller), and a fund never in
+  // the seller's — the mirror entry of each hop lives on the escrow system account.
+  await renderLedger(buyer.token, "ledgerBuyer");
+  await renderLedger(seller.token, "ledgerSeller");
+}
+
+async function renderLedger(token, tbodyId) {
+  if (!token) return;
+  const { items } = await api("/api/accounts/me/transactions", { token });
+  if (!items.length) return;
+  $(tbodyId).innerHTML = items.map(e => {
+    const credit = e.direction === "CREDIT";
+    return `<tr>
+      <td class="mono">${new Date(e.created_at).toLocaleTimeString()}</td>
+      <td class="${credit ? "cr" : "dr"}">${credit ? "CREDIT · in" : "DEBIT · out"}</td>
+      <td class="${credit ? "cr" : "dr"}" style="text-align:right">${credit ? "+" : "−"}$${(e.amount_cents / 100).toFixed(2)}</td>
+      <td class="mono">${e.transaction_id.slice(0, 8)}…</td>
+    </tr>`;
+  }).join("");
 }
 
 async function refreshOrder() {
@@ -121,9 +191,24 @@ $("create").onclick = async () => {
   await refreshOrder();
 };
 
-$("fund").onclick    = async () => { await api(`/api/escrows/${orderId}/fund`,    { method: "POST", token: buyer.token,  idem: true }); await refreshOrder(); await refreshBalances(); };
-$("release").onclick = async () => { await api(`/api/escrows/${orderId}/release`, { method: "POST", token: buyer.token,  idem: true }); await refreshOrder(); await refreshBalances(); };
-$("refund").onclick  = async () => { await api(`/api/escrows/${orderId}/refund`,  { method: "POST", token: seller.token, idem: true }); await refreshOrder(); await refreshBalances(); };
+// Escrow derived view: honest page-side reconstruction of the movements this page
+// itself triggered (NOT read from the DB — see the on-page disclaimer).
+let escrowCents = 0;
+const escrowRows = [];
+function pushEscrow(hop, credit, cents) {
+  escrowCents += credit ? cents : -cents;
+  escrowRows.unshift({ t: new Date().toLocaleTimeString(), hop, credit, cents });
+  $("escrowBal").textContent = "$" + (escrowCents / 100).toFixed(2);
+  $("ledgerEscrow").innerHTML = escrowRows.map(r => `<tr>
+      <td class="mono">${r.t}</td><td>${r.hop}</td>
+      <td class="${r.credit ? "cr" : "dr"}">${r.credit ? "CREDIT · in" : "DEBIT · out"}</td>
+      <td class="${r.credit ? "cr" : "dr"}" style="text-align:right">${r.credit ? "+" : "−"}$${(r.cents / 100).toFixed(2)}</td>
+    </tr>`).join("");
+}
+
+$("fund").onclick    = async () => { await api(`/api/escrows/${orderId}/fund`,    { method: "POST", token: buyer.token,  idem: true }); pushEscrow("fund · buyer → escrow", true, 5000);    await refreshOrder(); await refreshBalances(); };
+$("release").onclick = async () => { await api(`/api/escrows/${orderId}/release`, { method: "POST", token: buyer.token,  idem: true }); pushEscrow("release · escrow → seller", false, 5000); await refreshOrder(); await refreshBalances(); };
+$("refund").onclick  = async () => { await api(`/api/escrows/${orderId}/refund`,  { method: "POST", token: seller.token, idem: true }); pushEscrow("refund · escrow → buyer", false, 5000);  await refreshOrder(); await refreshBalances(); };
 </script>
 </body>
 </html>
