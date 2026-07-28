@@ -1,0 +1,24 @@
+target/
+*.class
+*.log
+.idea/
+*.iml
+.vscode/
+.DS_Store
+.env
+
+# Course assets kept locally, never pushed to GitHub
+*.pptx
+*.docx
+*.pdf
+PayNova_Architecture.png
+_to_delete/
+.DS_Store
+
+# Personal prep & local-only materials — never push
+interviewQ&A.md
+docs/零基础验收指南.md
+
+# Build/run byproducts
+mvn-output.txt
+COMMIT_PLAN.md
