@@ -1,4 +1,4 @@
-# PayNova Escrow
+# PayNova — Escrow Payment Platform
 
 > A portfolio-grade **sandbox escrow payment platform**. It implements production-inspired
 > ledger, idempotency, concurrency control, transactional outbox, security, and audit
